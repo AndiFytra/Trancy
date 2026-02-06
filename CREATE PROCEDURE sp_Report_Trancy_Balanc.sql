@@ -1,4 +1,4 @@
-ALTER PROCEDURE sp_Report_Trancy_BalanceSheetHeader
+CREATE PROCEDURE sp_Report_Trancy_BalanceSheetHeader
     @CurrentCountry   VARCHAR(2),
     @CompanyPK        UNIQUEIDENTIFIER,
     @ShipmentPK       UNIQUEIDENTIFIER
@@ -17,6 +17,7 @@ BEGIN
 
         --Remarks
         Remarks.XV_Data AS Remarks,
+        BurdenCode.XV_Data AS BurdenCode,
         --Transaction Number
         Inv.Invoices AS TransactionNum,
         -- Currency
@@ -55,8 +56,14 @@ BEGIN
             THEN NULL
             ELSE JobExRates.Currency6 + ' : JPY ' + FORMAT(JobExRates.BaseRate6, 'N2')
         END AS BaseRate6Display,
-
         
+        JobExRates.CurrOrg1 AS CurrOrg1,
+        JobExRates.CurrOrg2 AS CurrOrg2 ,
+        JobExRates.CurrOrg3 AS CurrOrg3,
+        JobExRates.CurrOrg4 AS CurrOrg4,
+        JobExRates.CurrOrg5 AS CurrOrg5,
+        JobExRates.CurrOrg6 AS CurrOrg6,
+
         -- CONSOL DETAILS
         JK_PK AS JobConsolPK,
         JK_UniqueConsignRef AS ConsolID,
@@ -64,6 +71,7 @@ BEGIN
         JK_OA_DepartureCTOAddress AS CTOAddress,
         JK_OA_PackDepotAddress AS CFSAddress,
         JK_OA_ContainerYardEmptyPickupAddress AS ContainerParkAddress,
+        CarrierCode.OH_Code AS Carrier,
         LoadPort      = MainConTrans.JW_RL_NKLoadPort,
         DischargePort = MainConTrans.JW_RL_NKDiscPort,
         Vessel        = MainConTrans.JW_Vessel,
@@ -207,7 +215,10 @@ BEGIN
         ON OrigRefCountry.RN_Code = OrigUNLOCO.RL_RN_NKCountryCode
     LEFT JOIN dbo.RefCountry AS DestRefCountry  
         ON DestRefCountry.RN_Code = DestUNLOCO.RL_RN_NKCountryCode
-
+    LEFT JOIN dbo.OrgAddress AS CarrierAdd
+        ON  JK_OA_ShippingLineAddress = CarrierAdd.OA_PK
+    LEFT JOIN dbo.OrgHeader AS CarrierCode
+        ON CarrierCode.OH_PK = CarrierAdd.OA_OH
     OUTER APPLY (
         SELECT
             STRING_AGG(XV_Data, ', ') AS Invoices
@@ -216,6 +227,8 @@ BEGIN
         AND XV_Name LIKE 'Shipper''s Commercial Invoice %'
         AND XV_Data IS NOT NULL
     ) Inv
+
+    OUTER APPLY GetCustomFieldByName(JobShipment.JS_PK,'Burden Code') BurdenCode
 
 
     OUTER APPLY GetCustomFieldByName(JobShipment.JS_PK,'Remarks') Remarks
@@ -234,11 +247,19 @@ BEGIN
             MAX(CASE WHEN rn = 3 THEN JF_RX_NKRateCurrency END) AS Currency3,
             MAX(CASE WHEN rn = 4 THEN JF_RX_NKRateCurrency END) AS Currency4,
             MAX(CASE WHEN rn = 5 THEN JF_RX_NKRateCurrency END) AS Currency5,
-            MAX(CASE WHEN rn = 6 THEN JF_RX_NKRateCurrency END) AS Currency6
+            MAX(CASE WHEN rn = 6 THEN JF_RX_NKRateCurrency END) AS Currency6,
+
+            MAX(CASE WHEN rn = 1 THEN OH_FullName END) AS CurrOrg1,
+            MAX(CASE WHEN rn = 2 THEN OH_FullName END) AS CurrOrg2,
+            MAX(CASE WHEN rn = 3 THEN OH_FullName END) AS CurrOrg3,
+            MAX(CASE WHEN rn = 4 THEN OH_FullName END) AS CurrOrg4,
+            MAX(CASE WHEN rn = 5 THEN OH_FullName END) AS CurrOrg5,
+            MAX(CASE WHEN rn = 6 THEN OH_FullName END) AS CurrOrg6
         FROM (
             SELECT
                 JF_RX_NKRateCurrency,
                 JF_BaseRate,
+                OH_FullName,
                 ROW_NUMBER() OVER (ORDER BY JF_RX_NKRateCurrency) rn
             FROM (
                 SELECT *,
@@ -249,6 +270,8 @@ BEGIN
                 FROM dbo.JobExRate
                 WHERE JF_JH = JH_PK
             ) d
+            LEFT JOIN 
+                dbo.OrgHeader ON OH_PK = d.JF_OH_Org
             WHERE dedupe = 1
         ) r
     ) JobExRates

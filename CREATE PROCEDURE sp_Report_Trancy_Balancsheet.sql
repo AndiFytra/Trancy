@@ -1,4 +1,4 @@
-ALTER PROCEDURE sp_Report_Trancy_BalanceSheet
+ALTEr PROCEDURE sp_Report_Trancy_BalanceSheet
     @CurrentCompany UNIQUEIDENTIFIER,
     @ShipmentPK UNIQUEIDENTIFIER
 AS
@@ -6,10 +6,10 @@ BEGIN
 SET NOCOUNT ON
 
     SELECT
-
-        AH_ConsolidatedInvoiceRef AS InternalRef,
         -- CHARGE INFORMATION
         JR_Desc AS ChargeDesc,
+        APHead.AH_TransactionNum AS APTransactionNum,
+        ARHead.AH_TransactionNum AS ARTransactionNum,
         -- CHARGE CODE + CHARGE GROUP INFORMATION
         AC_Code AS ChargeCode,
         AC_ChargeGroup AS ChargeGroup,
@@ -21,6 +21,7 @@ SET NOCOUNT ON
         GC_RX_NKLocalCurrency AS LocalCostCurrency,
         FORMAT(JR_LocalCostAmt, 'N2') AS LocalCostAmount,
         JR_OSCostGSTAmt AS OSCostTaxAmount,
+        JR_APLinePostingStatus AS APPostingStatus,
         Creditor.OH_Code AS CreditorCode,
         Creditor.OH_FullName AS CreditorName,
         CostTaxRate.AT_Code AS CostTaxCode,
@@ -38,6 +39,16 @@ SET NOCOUNT ON
             ELSE 0 
         END
         ) OVER (PARTITION BY AC_ChargeGroup),'N2') AS TotalLocalCostAmount_JPY,
+        FORMAT(
+            SUM(
+                CASE 
+                    WHEN JR_RX_NKCostCurrency = 'JPY'
+                        THEN ISNULL(JR_OSCostAmt, 0)
+                    ELSE 0
+                END
+            ) OVER (PARTITION BY AC_ChargeGroup),
+            'N2'
+        ) AS CostSubTotal,
         CASE
             WHEN CHARINDEX('-', JR_Desc) > 0
             THEN LEFT(JR_Desc, CHARINDEX('-', JR_Desc) - 1)
@@ -81,6 +92,7 @@ SET NOCOUNT ON
         GC_RX_NKLocalCurrency AS LocalSellCurrency,
         FORMAT(JR_LocalSellAmt,'N2') AS LocalSellAmount,
         JR_OSSellWHTAmt AS OSSellTaxAmount,
+        JR_ARLinePostingStatus AS ARPostingStatus,
         Debtor.OH_Code AS DebtorCode,
         Debtor.OH_FullName AS DebtorName,
         SellTaxRate.AT_Code AS SellTaxCode,
@@ -98,6 +110,15 @@ SET NOCOUNT ON
             ELSE 0 
         END
         ) OVER (PARTITION BY AC_ChargeGroup),'N2') AS TotalSellLocalAmount_JPY,
+        FORMAT(
+            SUM(
+                ISNULL(JR_LocalSellAmt, 0)
+            ) OVER (PARTITION BY AC_ChargeGroup),
+            'N2'
+        ) AS SellSubTotal,
+        FORMAT(SUM(JR_LocalSellAmt) OVER (),'N2') AS GrandTotalSell,
+        FORMAT(SUM(JR_LocalCostAmt) OVER (),'N2') AS GrandTotalCost,
+        
         -- CONSOL INFORMATION
         JK_UniqueConsignRef AS ConsolNo,
         JK_MasterBillNum AS ConsolMasterBillNum,
@@ -170,6 +191,7 @@ SET NOCOUNT ON
         JobConsol
             ON JK_PK = JN_JK
 
+
     -- ORGANISATION (DEBTOR / CREDITOR)
     LEFT JOIN OrgHeader AS Creditor
         ON Creditor.OH_PK = JR_OH_CostAccount
@@ -193,8 +215,17 @@ SET NOCOUNT ON
     LEFT JOIN GlbCompany
         AS Company ON Company.GC_PK = JR_GC
     
-    LEFT JOIN dbo.AccTransactionHeader
-        ON AH_JH = JH_PK
+    LEFT JOIN dbo.AccTransactionLines APLine
+        ON APLine.AL_PK = JR_AL_APLine
+
+    LEFT JOIN dbo.AccTransactionLines ARLine
+        ON ARLine.AL_PK = JR_AL_ARLine
+
+    LEFT JOIN dbo.AccTransactionHeader APHead
+        ON APLine.AL_AH = APHead.AH_PK 
+
+    LEFT JOIN dbo.AccTransactionHeader ARHead
+        ON ARLine.AL_AH = ARHead.AH_PK 
 
 
 WHERE

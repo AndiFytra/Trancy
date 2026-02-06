@@ -18,10 +18,14 @@ SELECT
     AC_Code AS ChargeCode,
     JH_JobNum AS JobNum,
     JH_GS_NKRepSales AS Sales,
+    AC_Code AS ChargeCode,
 
     CASE
         WHEN CCM.AR_Code IS NULL THEN 'ERROR'
-        ELSE CCM.AR_Code
+    END AS ChargeMappedCodeError,
+
+    CASE
+        WHEN CCM.AR_Code IS NOT NULL THEN CCM.AR_Code
     END AS ChargeMappedCode,
 
     CASE 
@@ -115,8 +119,8 @@ SELECT
     OUTER APPLY(
         SELECT TOP 1
         AR_Code
-        FROM dbo.ChargeCodeMap 
-        WHERE AC_Code LIKE Prefix
+        FROM dbo.ChargeCodeMap  AS M
+        WHERE M.Prefix = AC_Code 
     ) CCM
     WHERE
         (@FromDate IS NULL OR AH_InvoiceDate >= @FromDate)
@@ -124,6 +128,7 @@ SELECT
         AND (@Organisation IS NULL OR OH_PK = @Organisation)
         AND AH_GC = @CurrentCompany
         AND AH_Ledger = 'AR'
+        AND AH_TransactionType = 'INV'
     ORDER BY 
         JH_JobNum;
 END
